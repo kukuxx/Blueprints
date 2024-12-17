@@ -1,0 +1,85 @@
+blueprint:
+  name: 取得天氣最高最低的溫度和體感溫度
+  description: "這個藍圖可以取得opencwa-hourly模式天氣預報並計算指定時間範圍內的最高最低的溫度和體感溫度"
+  domain: automation
+  input:
+    weather_entity:
+      name: Weather Entity
+      description: "指定要獲取天氣預報的天氣實體"
+      selector:
+        entity:
+          domain: weather
+    start_time:
+      name: Start Time
+      description: "開始時間，格式為 YYYY-MM-DDTHH:MM:SS+00:00"
+      default: "None"
+      selector:
+        text: {}
+    end_time:
+      name: End Time
+      description: "結束時間，格式為 YYYY-MM-DDTHH:MM:SS+00:00"
+      default: "None"
+      selector:
+        text: {}
+    trigger_time: 
+      name: Trigger Time
+      description: "觸發時間"
+      default: 00:00:00
+      selector:
+        time:
+    notify_service:
+      name: Notify Action
+      description: "輸入通知動作"
+      selector:
+         text: {}
+    notification_data:
+      name: Notification Data
+      description: "通知的自定義內容 (如 title, message 等)，message可用變數為maxtemp,mintemp,maxatemp,minatemp"
+      selector:
+        text: {}
+
+triggers:
+  - trigger: time
+    at: !input trigger_time
+
+actions:
+  - sequence:
+      - action: weather.get_forecasts
+        data:
+          type: hourly
+        target:
+          entity_id: !input weather_entity
+        response_variable: w
+
+      - variables:
+          entity: !input weather_entity
+          forecast: "{{ w[entity]['forecast'] }}"
+          input_start_time: !input start_time 
+          start_time: >
+            {% if (input_start_time | trim) != "None" %}
+              {{ input_start_time }}
+            {% else %}
+              {{ (now() - timedelta(days=1)).strftime('%Y-%m-%dT22:00:00+00:00') }}
+            {% endif %}
+          input_end_time: !input end_time
+          end_time: >
+            {% if (input_end_time | trim) != "None" %}
+              {{ input_end_time }}
+            {% else %}
+              {{ now().strftime('%Y-%m-%dT19:00:00+00:00') }}
+            {% endif %}
+          filtered: >
+            {% set filtered_data = forecast | selectattr('datetime', '>=', start_time) | selectattr('datetime', '<=', end_time) | list %}
+            {{ filtered_data }}
+          temperatures: >
+            {% set temperatures = filtered | map(attribute='temperature') | list %}
+            {{ temperatures }}
+          apparenttemperatures: >
+            {% set apparenttemperatures = filtered | map(attribute='feels_like_temperature') | list %}
+            {{ apparenttemperatures }}
+          maxtemp: "{{ (temperatures | max) | round(0) }}"
+          mintemp: "{{ (temperatures | min) | round(0) }}"
+          maxatemp: "{{ (apparenttemperatures | max) | round(0) }}"
+          minatemp: "{{ (apparenttemperatures | min) | round(0) }}"
+      - action: !input notify_service
+        data: !input notification_data
